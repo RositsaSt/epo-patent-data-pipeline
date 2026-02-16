@@ -17,6 +17,7 @@ venv/
 front_pages/
 data/
 outputs/
+archive/
 
 # =========================
 # File types (generated / large)
@@ -25,6 +26,12 @@ outputs/
 *.pdf
 *.xlsx
 *.zip
+*.tar.gz
+*.tar
+*.log
+*.json
+*.jsonl
+*.xml
 
 # =========================
 # Python cache & artifacts
@@ -46,6 +53,8 @@ Thumbs.db
 .vscode/
 .idea/
 
+# =========================
 # Secrets / keys
+# =========================
 git_secret
 git_secret.pub
