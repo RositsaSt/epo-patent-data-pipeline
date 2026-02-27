@@ -1,12 +1,16 @@
 """
-Graph export package for turning EPO EP full‑text XML into Neo4j‑ready CSV files.
+epo_bdds_full_text_graph_export
 
-Public entrypoint for code usage (as a library):
+Tools to stream EPO BDDS EP full-text XML documents and export them into
+Neo4j-ready CSV tables.
 
-    from graph_export.service import GraphExportService
-    from graph_export.xml_source import NestedArchiveXmlSource
-    from graph_export.xml_parser import XmlPatentDocumentParser
-    from graph_export.neo4j_csv_writer import Neo4jCsvGraphWriter
+The package is designed to:
+- read XML either from a filesystem directory OR nested BDDS delivery archives
+- parse each XML into node/relationship rows
+- append rows into CSV tables (Neo4j LOAD CSV compatible)
+- track processed documents via a checkpoint store (SQLite)
 """
+
 __all__ = ["__version__"]
 __version__ = "0.1.0"
+

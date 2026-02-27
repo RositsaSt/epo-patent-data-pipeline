@@ -6,13 +6,19 @@ from ..config import CsvSchemas, ExportConfig, OutputTables
 
 
 def build_default_config(
-    input_dir: Path,
+    *,
     output_dir: Path,
     stop_after: int | None = None,
     fail_fast: bool = False,
 ) -> ExportConfig:
-    output_dir = output_dir.resolve()
-    input_dir = input_dir.resolve()
+    """
+    Build a default ExportConfig given an output directory.
+
+    Notes:
+    - This function defines default filenames and default CSV headers.
+    - Adjust the fieldnames to match your Neo4j import conventions.
+    """
+    output_dir = output_dir.expanduser().resolve()
 
     tables = OutputTables(
         publications_csv=output_dir / "nodes_publication.csv",
@@ -22,7 +28,7 @@ def build_default_config(
         relationships_csv=output_dir / "rels_core.csv",
     )
 
-    # IMPORTANT: replace fieldnames with your actual Neo4j import headers.
+    # IMPORTANT: Adjust fieldnames with your actual Neo4j import headers.
     schemas = CsvSchemas(
         publications_fields=["pub_id", "country", "doc_number", "kind", "publication_date", "source_id"],
         applications_fields=["appln_id", "appln_number", "appln_country", "filing_date", "source_id"],
@@ -34,7 +40,6 @@ def build_default_config(
     checkpoint_db = output_dir / "checkpoint" / "processed_xml.sqlite"
 
     return ExportConfig(
-        input_dir=input_dir,
         output_dir=output_dir,
         checkpoint_db=checkpoint_db,
         tables=tables,

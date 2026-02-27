@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Tuple
+from typing import Iterable, Protocol, Tuple
 import xml.etree.ElementTree as ET
 
 from ..config import ExportConfig
-from ..io.checkpoint_store import CheckpointStore
+from ..io.checkpoint_store import ProcessedXmlCheckpointStore
 from ..io.csv_sink import CsvAppendSink
 from ..extract.publication_extractor import PublicationExtractor
 from ..extract.application_extractor import ApplicationExtractor
@@ -13,15 +13,39 @@ from ..extract.person_extractor import PersonExtractor
 from ..extract.citation_extractor import CitationExtractor
 
 
+XmlItem = Tuple[str, bytes]  # (source_id, xml_bytes)
+
+
+class RowSink(Protocol):
+    def write_rows(self, rows: Iterable[dict]) -> int:
+        """
+        Write rows to the sink.
+
+        Returns the number of rows written.
+        """
+        ...
+
+
+class XmlCheckpoint(Protocol):
+    def open_connection(self): ...
+    def is_done(self, conn, source_id: str) -> bool: ...
+    def mark_done(self, conn, source_id: str) -> None: ...
+    def mark_failed(self, conn, source_id: str, error: str) -> None: ...
+
+
 @dataclass(frozen=True)
 class GraphExportPipeline:
-    checkpoint_store: CheckpointStore
+    """
+    Orchestrates:
+      XML bytes -> XML root -> extracted rows -> CSV sinks + checkpoint updates
+    """
+    checkpoint_store: ProcessedXmlCheckpointStore
 
-    publications_sink: CsvAppendSink
-    applications_sink: CsvAppendSink
-    persons_sink: CsvAppendSink
-    citations_sink: CsvAppendSink
-    relationships_sink: CsvAppendSink
+    publications_sink: RowSink
+    applications_sink: RowSink
+    persons_sink: RowSink
+    citations_sink: RowSink
+    relationships_sink: RowSink
 
     publication_extractor: PublicationExtractor
     application_extractor: ApplicationExtractor
@@ -31,8 +55,8 @@ class GraphExportPipeline:
     stop_after: int | None = None
     fail_fast: bool = False
 
-    def run(self, xml_items: Iterable[Tuple[str, bytes]]) -> None:
-        conn = self.checkpoint_store.open()
+    def run(self, xml_items: Iterable[XmlItem]) -> None:
+        conn = self.checkpoint_store.open_connection()
         processed = 0
 
         try:
@@ -41,15 +65,14 @@ class GraphExportPipeline:
                     continue
 
                 try:
-                    root = ET.fromstring(xml_bytes)
+                    xml_root = ET.fromstring(xml_bytes)
 
-                    publication_rows = self.publication_extractor.extract(root, source_id)
-                    application_rows = self.application_extractor.extract(root, source_id)
-                    person_rows = self.person_extractor.extract(root, source_id)
-                    citation_rows = self.citation_extractor.extract(root, source_id)
+                    publication_rows = self.publication_extractor.extract(xml_root, source_id)
+                    application_rows = self.application_extractor.extract(xml_root, source_id)
+                    person_rows = self.person_extractor.extract(xml_root, source_id)
+                    citation_rows = self.citation_extractor.extract(xml_root, source_id)
 
-                    # TODO: build relationships rows (pub->app, app->person, pub->pub cites, etc.)
-                    relationship_rows: list[dict] = []
+                    relationship_rows: list[dict] = []  # TODO: implement relationship builder
 
                     self.publications_sink.write_rows(publication_rows)
                     self.applications_sink.write_rows(application_rows)
@@ -75,7 +98,10 @@ class GraphExportPipeline:
 
 
 def build_pipeline(config: ExportConfig) -> GraphExportPipeline:
-    checkpoint_store = CheckpointStore(config.checkpoint_db)
+    """
+    Factory that wires concrete sinks/extractors/checkpoint store into a pipeline.
+    """
+    checkpoint_store = ProcessedXmlCheckpointStore(config.checkpoint_db)
 
     publications_sink = CsvAppendSink(config.tables.publications_csv, config.schemas.publications_fields)
     applications_sink = CsvAppendSink(config.tables.applications_csv, config.schemas.applications_fields)

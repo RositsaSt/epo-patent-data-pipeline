@@ -5,12 +5,17 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class XmlNamespaces:
-    # Add the namespaces you actually see in your EP XML.
-    # Example placeholders:
+    """
+    Namespace registry for ElementTree searches.
+
+    Example:
+        ns = XmlNamespaces()
+        root.find(ns.q("ep", "bibliographic-data"))
+    """
     ep: str = "http://www.epo.org/exchange"
     reg: str = "http://www.epo.org/register"
 
-    def q(self, ns: str, tag: str) -> str:
-        """Return '{namespace}tag' for ElementTree searches."""
-        uri = getattr(self, ns)
+    def q(self, namespace: str, tag: str) -> str:
+        """Return '{namespace-uri}tag' for ElementTree."""
+        uri = getattr(self, namespace)
         return f"{{{uri}}}{tag}"
