@@ -13,5 +13,5 @@ class CitationExtractor:
     often under bibliographic-data -> references-cited.
     """
 
-    def extract(self, xml_root: ET.Element, source_id: str) -> list[dict]:
+    def extract_citations(self, xml_root: ET.Element, source_id: str) -> list[dict]:
         return []

@@ -10,7 +10,11 @@ class OutputTables:
     """Output CSV file locations for Neo4j import."""
     publications_csv: Path
     applications_csv: Path
-    persons_csv: Path
+    ipc_classifications_csv: Path
+    cpc_classifications_csv: Path
+    applicants_csv: Path
+    inventors_csv: Path
+    attorney_representatives_csv: Path
     citations_csv: Path
     relationships_csv: Path
 
@@ -24,7 +28,11 @@ class CsvSchemas:
     """
     publications_fields: Sequence[str]
     applications_fields: Sequence[str]
-    persons_fields: Sequence[str]
+    ipc_classifications_fields: Sequence[str]
+    cpc_classifications_fields: Sequence[str]
+    applicants_fields: Sequence[str]
+    inventors_fields: Sequence[str]
+    attorney_representatives_fields: Sequence[str]
     citations_fields: Sequence[str]
     relationships_fields: Sequence[str]
 

@@ -16,7 +16,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     input_group.add_argument("--xml-dir", type=Path, help="Directory containing extracted *.xml files",)
     input_group.add_argument("--archives-dir", type=Path, help="Directory containing BDDS delivery archives (e.g., .zip or .tar.gz) with XMLs.")
     
-    parser.add_argument("--out", required=True, type=Path, help="Output directory for CSV tables and checkpoint DB.")
+    parser.add_argument("--output-dir", required=True, type=Path, help="Output directory for CSV tables and checkpoint DB.")
     parser.add_argument("--stop-after", type=int, default=None, help="Stop after processing this many XML items (for testing).")
     parser.add_argument("--fail-fast", action="store_true", help="Stop immediately on the first error (useful for debugging).")
     
@@ -28,7 +28,7 @@ def main() -> int:
 
     config = build_default_config(
         #input_dir=args.input,
-        output_dir=args.out,
+        output_dir=args.output_dir,
         stop_after=args.stop_after,
         fail_fast=args.fail_fast,
     )

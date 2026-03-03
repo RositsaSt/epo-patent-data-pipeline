@@ -17,21 +17,24 @@ class PublicationExtractor:
 
     It produces one row with a stable pub_id: "{country}{doc_number}{kind}".
     """
-    def extract(self, xml_root: ET.Element, source_id: str) -> list[dict]:
+    def extract_publication_info(self, xml_root: ET.Element, source_id: str) -> list[dict]:
         country = (xml_root.get("country") or "").strip()
         pub_number = (xml_root.get("doc-number") or "").strip()
         kind_code = (xml_root.get("kind") or "").strip()
         publication_date = (xml_root.get("date-publ") or "").strip()
+        pub_language = (xml_root.get("lang") or "").strip()
 
         if not (country and pub_number and kind_code):
             return []
 
-        pub_id = f"{country}{pub_number}{kind_code}"
+        pub_id = f"{country}{pub_number}{kind_code}"    
+                    
         return [{
             "pub_id": pub_id,
             "country": country,
-            "doc_number": pub_number,
-            "kind": kind_code,
+            "pub_number": pub_number,
+            "kind_code": kind_code,
             "publication_date": publication_date,
+            "pub_language": pub_language,
             "source_id": source_id,
         }]

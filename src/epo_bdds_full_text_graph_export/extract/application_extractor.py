@@ -1,34 +1,51 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 import xml.etree.ElementTree as ET
+
+from ..xml.xml_utils import extract_text_from_element
 
 
 @dataclass(frozen=True)
 class ApplicationExtractor:
-    def extract(self, xml_root: ET.Element, source_id: str) -> list[dict]:
+    def extract_application_info(self, xml_root: ET.Element, source_id: str) -> list[dict]:
         """
-        Extract a minimal application node.
-
-        NOTE: This is still a placeholder. In EP full-text, application identifiers
-        are often in bibliographic-data (not always on root attributes).
+        Extract a minimal application node from the EP full-text XML root.
         """
-        #EP11861483A1
-        appln_id = xml_root.get("id") or ""
-        appln_number = xml_root.get("doc-number") or ""
-        appln_country = xml_root.get("country") or ""
-        appln_kind_code = xml_root.get("kind") or ""
-        filing_date = "" # TODO: parse from bibliographic-data
-        #TODO: Remove EP and A1 from the appl_number, and use the country and kind code fields instead. This is because the doc-number field may contain leading zeros that are not stable across different sources, while the combination of country and kind code is more likely to be stable. For example, if the doc-number is "0011861483", it may be represented as "11861483" in some sources, which would cause issues with matching. By using the country and kind code fields, we can ensure that the application identifier is consistent regardless of how the doc-number is formatted
+        appln_id = (xml_root.get("id") or "").strip()
+        appln_country = (xml_root.get("id") or "").strip()[:2]
+        appln_number = (xml_root.get("id") or "").strip()[2:10]
+        appln_kind_code = (xml_root.get("id") or "").strip()[10:]
         
-        if not appln_number:
+        sdobi = (xml_root.find("SDOBI"))
+        if sdobi is not None:
+            b200 = sdobi.find("B200")
+            if b200 is not None:
+                b220 = b200.find("B220")
+                if b220 is not None:
+                    appln_filing_date = extract_text_from_element(b220, "date")
+                    #(b220.find("date").text or "").strip()
+                    
+            b400 = sdobi.find("B400")
+            if b400 is not None:
+                b405 = b400.find("B405")
+                if b405 is not None:
+                    gazette_date = extract_text_from_element(b405, "date")
+                    #(b405.find("date").text or "").strip()
+                    gazette_issue = extract_text_from_element(b405, "bnum")
+                    #(b405.find("bnum").text or "").strip()          
+        
+        if not appln_id:
             return []
 
         return [{
             "appln_id": appln_id,
-            "appln_number": appln_number,
             "appln_country": appln_country,
+            "appln_number": appln_number,
             "appln_kind_code": appln_kind_code,
-            "filing_date": filing_date,
+            "appln_filing_date": appln_filing_date,
+            "gazette_date": gazette_date,
+            "gazette_issue": gazette_issue,
             "source_id": source_id,
         }]
