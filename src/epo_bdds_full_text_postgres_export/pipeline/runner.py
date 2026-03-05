@@ -5,64 +5,59 @@ from typing import Iterable, Tuple
 
 from ..config import PostgresExportConfig
 from ..extract.fulltext_extractor import FullTextExtractor
+from ..io.checkpoint_store import CheckpointStore
 from ..io.postgres import PostgresFullTextRepository
 
 XmlItem = Tuple[str, bytes]  # (source_id, xml_bytes)
 
-class ProcessedXmlCheckpointStore:
-    """
-    Minimal placeholder. If you already have this in graph_export,
-    just import/reuse it to avoid duplication.
-    """
-    def __init__(self, path: str) -> None:
-        self._path = path
-        self._seen: set[str] = set()
-        try:
-            with open(self._path, "r", encoding="utf-8") as f:
-                for line in f:
-                    self._seen.add(line.strip())
-        except FileNotFoundError:
-            pass
-
-    def has_processed(self, source_id: str) -> bool:
-        return source_id in self._seen
-
-    def mark_processed(self, source_id: str) -> None:
-        if source_id in self._seen:
-            return
-        with open(self._path, "a", encoding="utf-8") as f:
-            f.write(source_id + "\n")
-        self._seen.add(source_id)
-
 
 @dataclass
 class PostgresExportPipeline:
+    """
+    Orchestrates:
+      - skipping already-processed XMLs via checkpoint store
+      - extracting full-text content
+      - upserting into PostgreSQL
+      - checkpointing after successful processing
+    """
     config: PostgresExportConfig
     extractor: FullTextExtractor
-    repo: PostgresFullTextRepository
-    checkpoint: ProcessedXmlCheckpointStore
+    repository: PostgresFullTextRepository
+    checkpoint_store: CheckpointStore
 
     def run(self, xml_items: Iterable[XmlItem]) -> None:
+        """
+        Run the export pipeline over an iterable of (source_id, xml_bytes).
+        """
         self.config.validate()
 
-        with self.repo.open() as conn:
-            self.repo.ensure_schema(conn)
+        with self.repository.open_connection() as conn:
+            self.repository.ensure_schema(conn)
 
-            n = 0
+            processed_since_commit = 0
+            
             for source_id, xml_bytes in xml_items:
-                if self.checkpoint.has_processed(source_id):
+                if self.checkpoint_store.has_processed(source_id):
                     continue
+                
+                self._process_single_xml(conn=conn, source_id=source_id, xml_bytes=xml_bytes)
 
-                # Store only whitelisted languages (claims are lang-scoped)
-                for lang in self.config.language_whitelist:
-                    rec = self.extractor.extract(source_id=source_id, xml_bytes=xml_bytes, lang=lang)
-                    if rec is not None:
-                        self.repo.upsert(conn, rec)
-
-                self.checkpoint.mark_processed(source_id)
-
-                n += 1
-                if n % self.config.commit_every == 0:
+                # Only mark processed if we got here without raising.
+                self.checkpoint_store.mark_processed(source_id)
+                
+                processed_since_commit += 1
+                if processed_since_commit >= self.config.commit_every:
                     conn.commit()
-
-            conn.commit()
+                    processed_since_commit = 0
+                    
+                conn.commit()
+                
+    def _process_single_xml(self, *, conn, source_id: str, xml_bytes: bytes) -> None:
+        """
+        Extract and upsert all configured languages for a single XML.
+        """
+        for lang in self.config.language_whitelist:
+            record = self.extractor.extract_record(source_id=source_id, xml_bytes=xml_bytes, lang=lang)
+            if record is None:
+                continue
+            self.repository.upsert_record(conn, record)

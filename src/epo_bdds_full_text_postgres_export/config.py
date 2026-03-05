@@ -9,15 +9,26 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class PostgresExportConfig:
-    # Example: "postgresql://user:pass@localhost:5432/patents"
-    pg_dsn: str = os.getenv("PATENTS_PG_DSN", "")
+    """
+    Configuration for exporting EPO BDDS full-text content into PostgreSQL.
+    """
+    postgres_dsn: str
 
-    # Keep only English by default (you can widen later)
+    # Keep only English by default
     language_whitelist: tuple[str, ...] = ("en",)
 
     # Batch commits for speed
-    commit_every: int = int(os.getenv("PATENTS_PG_COMMIT_EVERY", "200"))
+    commit_every: int = 200
 
     def validate(self) -> None:
-        if not self.pg_dsn:
-            raise SystemExit("Missing PATENTS_PG_DSN env var (e.g. postgresql://user:pass@host:5432/db).")
+        """
+        Validate config values and raise ValueError on invalid configuration.
+        """
+        if not self.postgres_dsn.strip():
+            raise ValueError("postgres_dsn is empty. Set PATENTS_PG_DSN (e.g. postgresql://user:pass@host:5432/db).")
+        
+        if self.commit_every <= 0:
+            raise ValueError("commit_every must be a positive integer.")
+        
+        if not self.language_whitelist:
+            raise ValueError("language_whitelist must contain at least one language code.")

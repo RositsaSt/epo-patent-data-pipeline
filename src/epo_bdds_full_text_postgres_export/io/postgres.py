@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 from ..domain.models import FullTextRecord
 
-DDL = """
+_CREATE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS patent_fulltext (
   source_id        TEXT NOT NULL,
+  appln_id         TEXT NOT NULL,
   pub_id           TEXT NOT NULL,
   lang             TEXT NOT NULL,
 
@@ -26,17 +29,30 @@ CREATE TABLE IF NOT EXISTS patent_fulltext (
 CREATE INDEX IF NOT EXISTS idx_patent_fulltext_source_id ON patent_fulltext(source_id);
 """
 
-UPSERT = """
+_UPSERT_SQL = """
 INSERT INTO patent_fulltext (
-  source_id, pub_id, lang,
-  abstract_text, description_text, claims_text, claims_json,
+  source_id, 
+  appln_id, 
+  pub_id, 
+  lang,
+  abstract_text, 
+  description_text, 
+  claims_text, 
+  claims_json,
   updated_at
 ) VALUES (
-  %(source_id)s, %(pub_id)s, %(lang)s,
-  %(abstract_text)s, %(description_text)s, %(claims_text)s, %(claims_json)s,
+  %(source_id)s, 
+  %(appln_id)s, 
+  %(pub_id)s, 
+  %(lang)s,
+  %(abstract_text)s, 
+  %(description_text)s, 
+  %(claims_text)s, 
+  %(claims_json)s,
   now()
 )
-ON CONFLICT (pub_id, lang) DO UPDATE SET
+ON CONFLICT (pub_id, lang) 
+DO UPDATE SET
   source_id = EXCLUDED.source_id,
   abstract_text = EXCLUDED.abstract_text,
   description_text = EXCLUDED.description_text,
@@ -45,29 +61,46 @@ ON CONFLICT (pub_id, lang) DO UPDATE SET
   updated_at = now();
 """
 
-class PostgresFullTextRepository:
-    def __init__(self, dsn: str) -> None:
-        self._dsn = dsn
 
-    def open(self) -> psycopg.Connection:
-        conn = psycopg.connect(self._dsn, row_factory=dict_row)
+@dataclass(frozen=True)
+class PostgresConnectionFactory:
+    """
+    Creates psycopg connections.
+    """
+    dsn: str
+
+    def connect(self) -> psycopg.Connection:
+        conn = psycopg.connect(self.dsn, row_factory=dict_row)
+        # No timeout while bulk-loading huge BDDS archives
         conn.execute("SET statement_timeout = '0';")
         return conn
 
+
+class PostgresFullTextRepository:
+    """
+    Repository responsible only for PostgreSQL persistence of FullTextRecord.
+    """
+    def __init__(self, connection_factory: PostgresConnectionFactory) -> None:
+        self._connection_factory = connection_factory
+        
+    def open_connection(self) -> psycopg.Connection:
+        return self._connection_factory.connect()
+        
     def ensure_schema(self, conn: psycopg.Connection) -> None:
-        conn.execute(DDL)
+        conn.execute(_CREATE_SCHEMA_SQL)
         conn.commit()
 
-    def upsert(self, conn: psycopg.Connection, rec: FullTextRecord) -> None:
+    def upsert_record(self, conn: psycopg.Connection, record: FullTextRecord) -> None:
         conn.execute(
-            UPSERT,
+            _UPSERT_SQL,
             {
-                "source_id": rec.source_id,
-                "pub_id": rec.pub_id,
-                "lang": rec.lang,
-                "abstract_text": rec.abstract_text,
-                "description_text": rec.description_text,
-                "claims_text": rec.claims_text,
-                "claims_json": Json(rec.claims_json) if rec.claims_json is not None else None,
+                "source_id": record.source_id,
+                "appln_id": record.appln_id,
+                "pub_id": record.pub_id,
+                "lang": record.lang,
+                "abstract_text": record.abstract_text,
+                "description_text": record.description_text,
+                "claims_text": record.claims_text,
+                "claims_json": Json(record.claims_json) if record.claims_json is not None else None,
             },
         )

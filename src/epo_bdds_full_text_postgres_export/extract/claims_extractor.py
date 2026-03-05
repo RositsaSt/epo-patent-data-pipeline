@@ -1,40 +1,53 @@
 from __future__ import annotations
+
 import xml.etree.ElementTree as ET
 from typing import Any
-from .text_utils import element_text
-import re
 
-_RE_WS = re.compile(r"\s+")
+from .text_utils import element_text, normalize_whitespace
+
 
 class ClaimsExtractor:
-    def extract(self, root: ET.Element, *, lang: str) -> tuple[str | None, list[dict[str, Any]] | None]:
+    """
+    Extract claims text + a structured JSON representation for one language.
+
+    Typical structure:
+      <claims lang="en">
+         <claim id="..." num="1"> ... </claim>
+      </claims>
+    """
+    def extract_claims(self, root: ET.Element, *, lang: str) -> tuple[str | None, list[dict[str, Any]] | None]:
         """
         Returns:
-          - claims_text: one big string
-          - claims_json: list of {"num": "...", "id": "...", "text": "..."}
+          - claims_text: claims joined as a readable string
+          - claims_json: list of {"id": "...", "num": "...", "text": "..."} or None
         """
-        # There can be multiple <claims lang="en"> blocks (your sample has en/de/fr)
-        claim_blocks = [c for c in root.findall("claims") if (c.get("lang") == lang)]
+        # Some XMLs may include multiple <claims> blocks for different languages.
+        claim_blocks = [block for block in root.findall("claims") if (block.get("lang") == lang)]
         if not claim_blocks:
             return None, None
 
         # Usually only one block per language; if multiple, merge
-        rows: list[dict[str, Any]] = []
-        texts: list[str] = []
+        claims_rows: list[dict[str, Any]] = []
+        claims_text_parts: list[str] = []
 
-        for block in claim_blocks:
-            for claim in block.findall("claim"):
-                claim_id = claim.get("id") or ""
-                claim_num = claim.get("num") or ""
-                # flatten nested <claim-text> structure
-                t = element_text(claim)
-                t = _RE_WS.sub(" ", t).strip()
-                if not t:
+        for claim_block in claim_blocks:
+            for claim in claim_block.findall("claim"):
+                claim_id = (claim.get("id") or "").strip()
+                claim_num = (claim.get("num") or "").strip()
+                
+                raw_text = element_text(claim)
+                claim_text = normalize_whitespace(raw_text)
+                if not claim_text:
                     continue
-                rows.append({"id": claim_id, "num": claim_num, "text": t})
-                texts.append(f"{claim_num}. {t}" if claim_num else t)
+                
+                claims_rows.append({"id": claim_id, "num": claim_num, "text": claim_text})
+                
+                if claim_num:
+                    claims_text_parts.append(f"{claim_num}. {claim_text}")
+                else:
+                    claims_text_parts.append(claim_text)
 
-        if not texts:
+        if not claims_text_parts:
             return None, None
 
-        return "\n\n".join(texts).strip(), rows
+        return "\n\n".join(claims_text_parts).strip(), claims_rows

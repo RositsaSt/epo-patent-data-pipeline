@@ -2,28 +2,39 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 
-_RE_WS = re.compile(r"\s+")
+_WHITESPACE_RE = re.compile(r"\s+")
 
-def element_text(el: ET.Element | None) -> str:
+def normalize_whitespace(text: str) -> str:
     """
-    Extract visible text from an element, including nested inline tags,
-    normalizing whitespace.
+    Normalize whitespace to single spaces and strip leading/trailing whitespace.
     """
-    if el is None:
+    return _WHITESPACE_RE.sub(" ", text).strip()
+
+def element_text(element: ET.Element | None) -> str:
+    """
+    Extract visible text from an element (including nested inline tags) and normalize whitespace.
+
+    Returns empty string if element is None.
+    """
+    if element is None:
         return ""
-    txt = "".join(el.itertext())
-    txt = _RE_WS.sub(" ", txt).strip()
-    return txt
+    combined = "".join(element.itertext())
+    combined_normalized = normalize_whitespace(combined)
+    return combined_normalized
 
-def element_text_preserve_paragraphs(parent: ET.Element | None, *, p_tag: str = "p") -> str:
+def element_text_preserve_paragraphs(parent: ET.Element | None, *, paragraph_tag: str = "p") -> str:
     """
-    Common for <description><p>...</p></description>
+    Extract paragraph text from a parent element while preserving paragraph breaks.
+
+    Example: description often contains <p> blocks. We return paragraphs separated by blank lines.
     """
     if parent is None:
         return ""
-    parts: list[str] = []
-    for p in parent.findall(p_tag):
-        t = element_text(p)
-        if t:
-            parts.append(t)
-    return "\n\n".join(parts).strip()
+    
+    paragraphs: list[str] = []
+    for paragraph in parent.findall(paragraph_tag):
+        paragraph_text = element_text(paragraph)
+        if paragraph_text:
+            paragraphs.append(paragraph_text)
+            
+    return "\n\n".join(paragraphs).strip()
