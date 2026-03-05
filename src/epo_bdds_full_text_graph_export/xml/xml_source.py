@@ -12,7 +12,7 @@ XmlItem=Tuple[str, bytes]  # (source_id, xml_bytes)
 class XmlSource(Protocol):
     """Anything that can stream XML documents as (source_id, xml_bytes)."""
     def iter_xml_items(self) -> Iterator[XmlItem]: ...
-    #TODO: finish this function
+
     
 @dataclass(frozen=True)
 class FileSystemXmlSource:

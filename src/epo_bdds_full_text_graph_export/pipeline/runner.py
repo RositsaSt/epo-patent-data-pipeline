@@ -16,7 +16,7 @@ from ..extract.applicants_extractor import ApplicantExtractor
 from ..extract.inventors_extractor import InventorExtractor
 from ..extract.attorney_representative_extractor import AttorneyRepresentativeExtractor
 from ..extract.citation_extractor import CitationExtractor
-from .relationship_builder import RelationshipBuilder
+from ..graph.relationship_builder import RelationshipBuilder
 
 
 XmlItem = Tuple[str, bytes]  # (source_id, xml_bytes)
@@ -56,6 +56,7 @@ class GraphExportPipeline:
     attorney_representatives_sink: RowSink
     citations_sink: RowSink
     relationships_sink: RowSink
+    source_files_sink: RowSink
 
     publication_extractor: PublicationExtractor
     application_extractor: ApplicationExtractor
@@ -80,6 +81,8 @@ class GraphExportPipeline:
 
                 try:
                     xml_root = ET.fromstring(xml_bytes)
+                    
+                    relationship_builder = RelationshipBuilder()
 
                     publication_rows = self.publication_extractor.extract_publication_info(xml_root, source_id)
                     application_rows = self.application_extractor.extract_application_info(xml_root, source_id)
@@ -90,21 +93,25 @@ class GraphExportPipeline:
                     attorney_rows = self.attorney_representative_extractor.extract_attorney_representative(xml_root, source_id)
                     citation_rows = self.citation_extractor.extract_citations(xml_root, source_id)
 
-                    rb = RelationshipBuilder()
+                    
 
-                    rb.ingest_publications(publication_rows)
-                    rb.ingest_applications(application_rows)
+                    relationship_builder.ingest_publications(publication_rows)
+                    relationship_builder.ingest_applications(application_rows)
+                    relationship_builder.build_static_links()
 
-                    rb.link_applications_publications()
+                    relationship_builder.ingest_ipc(ipc_classification_rows)
+                    relationship_builder.ingest_cpc(cpc_classification_rows)
 
-                    rb.ingest_ipc(ipc_classification_rows)
-                    rb.ingest_cpc(cpc_classification_rows)
+                    applicants_rows = relationship_builder.enricher().enrich_applicants(applicants_rows)
+                    inventors_rows = relationship_builder.enricher().enrich_inventors(inventors_rows)
+                    attorney_rows = relationship_builder.enricher().enrich_attorneys(attorney_rows)
 
-                    rb.ingest_applicants(applicants_rows)
-                    rb.ingest_inventors(inventors_rows)
-                    rb.ingest_attorneys(attorney_rows)
+                    relationship_builder.ingest_applicants(applicants_rows)
+                    relationship_builder.ingest_inventors(inventors_rows)
+                    relationship_builder.ingest_attorneys(attorney_rows)
 
-                    relationship_rows = [r.__dict__ for r in rb.rows()]
+                    relationship_rows = [r.as_dict() for r in relationship_builder.relationship_rows()]
+                    source_files_rows = relationship_builder.source_file_rows()
                     
                     self.publications_sink.write_rows(publication_rows)
                     self.applications_sink.write_rows(application_rows)
@@ -114,6 +121,7 @@ class GraphExportPipeline:
                     self.inventors_sink.write_rows(inventors_rows)
                     self.attorney_representatives_sink.write_rows(attorney_rows)
                     self.citations_sink.write_rows(citation_rows)
+                    self.source_files_sink.write_rows(source_files_rows)
                     self.relationships_sink.write_rows(relationship_rows)
 
                     self.checkpoint_store.mark_done(conn, source_id)
@@ -160,6 +168,7 @@ def build_pipeline(config: ExportConfig) -> GraphExportPipeline:
     attorney_representatives_sink = CsvAppendSink(config.tables.attorney_representatives_csv, config.schemas.attorney_representatives_fields)
     citations_sink = CsvAppendSink(config.tables.citations_csv, config.schemas.citations_fields)
     relationships_sink = CsvAppendSink(config.tables.relationships_csv, config.schemas.relationships_fields)
+    source_files_sink = CsvAppendSink(config.tables.source_files_csv, config.schemas.source_files_fields)
 
     return GraphExportPipeline(
         checkpoint_store=checkpoint_store,
@@ -172,6 +181,7 @@ def build_pipeline(config: ExportConfig) -> GraphExportPipeline:
         attorney_representatives_sink=attorney_representatives_sink,
         citations_sink=citations_sink,
         relationships_sink=relationships_sink,
+        source_files_sink=source_files_sink,
         publication_extractor=PublicationExtractor(),
         application_extractor=ApplicationExtractor(),
         ipc_classification_extractor=IpcClassificationExtractor(),

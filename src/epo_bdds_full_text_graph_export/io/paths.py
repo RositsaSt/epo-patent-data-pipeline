@@ -28,8 +28,9 @@ def build_default_config(
         applicants_csv=output_dir / "nodes_applicant.csv",
         inventors_csv=output_dir / "nodes_inventor.csv",
         attorney_representatives_csv=output_dir / "nodes_attorney_representative.csv",
-        citations_csv=output_dir / "rels_cites.csv",
-        relationships_csv=output_dir / "rels_core.csv",
+        citations_csv=output_dir / "nodes_citations.csv",
+        relationships_csv=output_dir / "relationships.csv",
+        source_files_csv=output_dir / "nodes_source_files.csv",
     )
 
     # IMPORTANT: Adjust fieldnames with your actual Neo4j import headers.
@@ -39,13 +40,14 @@ def build_default_config(
                              "gazette_date", "gazette_issue", "source_id"],
         ipc_classifications_fields=["ipc_raw_code", "ipc_long_code", "ipc_short_code", "source_id"],
         cpc_classifications_fields=["cpc_raw_code", "cpc_long_code", "cpc_short_code", "source_id"],
-        applicants_fields=["applicant_name", "applicant_epo_id", "applicant_reference", "applicant_address", 
+        applicants_fields=["org_key", "applicant_name", "applicant_epo_id", "applicant_reference", "applicant_address", 
                            "applicant_city", "applicant_country", "source_id"],
-        inventors_fields=["inventor_name", "inventor_address", "inventor_city", "inventor_country", "source_id"],
-        attorney_representatives_fields=["attorney_name", "attorney_sfx", "attorney_epo_id", 
+        inventors_fields=["person_key", "inventor_name", "inventor_address", "inventor_city", "inventor_country", "source_id"],
+        attorney_representatives_fields=["person_key", "attorney_name", "attorney_sfx", "attorney_epo_id", 
                                          "attorney_address", "attorney_city", "attorney_country", "source_id"],
         citations_fields=["from_pub_id", "to_pub_id", "cite_type", "source_id"],
-        relationships_fields=["from_id", "to_id", "rel_type", "source_id"],
+        relationships_fields=["from_label", "from_key", "from_id", "rel_type", "to_label", "to_key", "to_id", "source_id"],
+        source_files_fields=["source_id"],
     )
 
     checkpoint_db = output_dir / "checkpoint" / "processed_xml.sqlite"

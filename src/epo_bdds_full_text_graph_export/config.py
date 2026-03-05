@@ -17,6 +17,7 @@ class OutputTables:
     attorney_representatives_csv: Path
     citations_csv: Path
     relationships_csv: Path
+    source_files_csv: Path
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class CsvSchemas:
     attorney_representatives_fields: Sequence[str]
     citations_fields: Sequence[str]
     relationships_fields: Sequence[str]
+    source_files_fields: Sequence[str]
 
 
 @dataclass(frozen=True)
