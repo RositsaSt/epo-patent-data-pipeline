@@ -15,9 +15,12 @@ venv/
 # Data & generated content
 # =========================
 front_pages/
-data/
 outputs/
 archive/
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
 
 # =========================
 # File types (generated / large)
