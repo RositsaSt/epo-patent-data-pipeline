@@ -37,17 +37,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
 
     # Directory overrides (all have .env / sensible defaults)
-    parser.add_argument("--raw-dir", type=Path, default=None)
-    parser.add_argument("--staging-dir", type=Path, default=None)
-    parser.add_argument("--final-dir", type=Path, default=None)
-    parser.add_argument("--graph-output-dir", type=Path, default=None)
-    parser.add_argument("--checkpoint-dir", type=Path, default=None)
-    parser.add_argument("--log-dir", type=Path, default=None)
+    parser.add_argument("--raw-dir", type=Path, default=None, help="Where to store raw downloaded files, e.g. ZIPs from EPO")
+    parser.add_argument("--staging-dir", type=Path, default=None, help="Where to store staged files, ready for final processing")
+    parser.add_argument("--final-dir", type=Path, default=None, help="Where to store final processed files, ready for graph loading")
+    parser.add_argument("--graph-output-dir", type=Path, default=None, help="Where to store graph output files, e.g. CSVs for Neo4j LOAD CSV")
+    parser.add_argument("--checkpoint-dir", type=Path, default=None, help="Where to store checkpoint files")
+    parser.add_argument("--log-dir", type=Path, default=None, help="Where to store log files")
 
     # Neo4j overrides
-    parser.add_argument("--neo4j-uri", type=str, default=None)
-    parser.add_argument("--neo4j-user", type=str, default=None)
-    parser.add_argument("--neo4j-password", type=str, default=None)
+    parser.add_argument("--neo4j-uri", type=str, default=None, help="Neo4j connection URI, e.g. bolt://localhost:7687")
+    parser.add_argument("--neo4j-user", type=str, default=None, help="Neo4j username")
+    parser.add_argument("--neo4j-password", type=str, default=None, help="Neo4j password")
 
     return parser
 

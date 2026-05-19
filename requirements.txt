@@ -1,5 +1,6 @@
 certifi==2026.1.4
 charset-normalizer==3.4.4
+dotenv==0.9.9
 idna==3.11
 numpy==2.4.2
 pandas==3.0.0
