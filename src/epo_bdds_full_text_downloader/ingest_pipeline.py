@@ -169,7 +169,15 @@ class IngestPipeline:
         # Remove leftovers before starting a fresh atomic download.
         self._delete_partials(paths.raw_path)
         
-        expected_size = downloader.get_remote_file_size_bytes(self.session, url, headers=self._cfg.download.headers)
+        
+        expected_size = downloader.get_remote_file_size_bytes(
+            self.session,
+            url,
+            headers=self._cfg.download.headers,
+        )
+
+        if expected_size is None:
+            logger.warning("Remote size unknown. Downloading without size pre-check.")
         
         logger.info(f"Downloading {paths.filename} (expected size: {expected_size} bytes)")
         try:

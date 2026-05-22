@@ -6,6 +6,10 @@ import zipfile
 
 import requests
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # =============================================================================
 # CONFIG
@@ -137,6 +141,39 @@ def get_remote_file_size_bytes(
         return int(content_length)
     
     return None
+
+
+def get_remote_file_size_bytes(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str] | None = None,
+    timeout: tuple[int, int] = (10, 300),
+) -> Optional[int]:
+    """
+    Try to get remote file size via HEAD.
+
+    Returns None if the size cannot be determined.
+    The download pipeline should still continue.
+    """
+    try:
+        response = session.head(
+            url,
+            headers=headers,
+            timeout=timeout,  # connect timeout, read timeout
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+
+        content_length = response.headers.get("Content-Length")
+        if content_length is None:
+            logger.warning("No Content-Length header for %s", url)
+            return None
+
+        return int(content_length)
+
+    except requests.exceptions.Timeout:
+        logger.warning("HEAD request timed out for %s. Continuing without size check.", url)
+        return None
 
 
 def is_local_file_complete(
