@@ -56,8 +56,8 @@ def get_first_available_metadata_field(
     """
     Return the value of the first key found in `possible_field_names`
     that exists in `metadata` and is not None.
-    
-    This is added because the key of the dict is sometimes called 'id', 
+
+    This is added because the key of the dict is sometimes called 'id',
     'fileId', 'deliveryId', etc. depending on what you are downloading
     """
     for key in possible_field_names:
@@ -117,86 +117,6 @@ def iter_archive_refs(product_metadata: Mapping[str, Any]) -> Iterator[Tuple[str
                 expected_size = int(size)
 
             yield (str(delivery_id), str(file_id), str(filename), expected_size)
-            
-
-# =============================================================================
-# REMOTE SIZE / COMPLETENESS CHECKS
-# =============================================================================
-
-def get_remote_file_size_bytes(
-    session: requests.Session,
-    url: str,
-    headers: Mapping[str, str],
-) -> int | None:
-    """
-    Retrieve the remote file size (in bytes) from the HTTP Content-Length header.
-
-    This function performs a HEAD request to avoid downloading the file body.
-    """
-    response = session.head(url, headers=headers, timeout=60, allow_redirects=True,)
-    response.raise_for_status()
-    
-    content_length = response.headers.get("Content-Length")
-    if content_length and content_length.isdigit():
-        return int(content_length)
-    
-    return None
-
-
-def get_remote_file_size_bytes(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str] | None = None,
-    timeout: tuple[int, int] = (10, 300),
-) -> Optional[int]:
-    """
-    Try to get remote file size via HEAD.
-
-    Returns None if the size cannot be determined.
-    The download pipeline should still continue.
-    """
-    try:
-        response = session.head(
-            url,
-            headers=headers,
-            timeout=timeout,  # connect timeout, read timeout
-            allow_redirects=True,
-        )
-        response.raise_for_status()
-
-        content_length = response.headers.get("Content-Length")
-        if content_length is None:
-            logger.warning("No Content-Length header for %s", url)
-            return None
-
-        return int(content_length)
-
-    except requests.exceptions.Timeout:
-        logger.warning("HEAD request timed out for %s. Continuing without size check.", url)
-        return None
-
-
-def is_local_file_complete(
-    session: requests.Session, 
-    destination: Path, 
-    url: str, 
-    headers: Mapping[str, str] = DEFAULT_HEADERS,
-) -> bool:
-    """
-    Determine whether a local file fully matches the remote file size.
-    Returns False if remote size is unknown.
-    """
-    if not destination.exists():
-        return False
-    
-    remote_file_size = get_remote_file_size_bytes(session=session, url=url, headers=headers,)
-    
-    if remote_file_size is None:
-        # No reliable way to verify completeness
-        return False
-    
-    local_file_size=destination.stat().st_size
-    return local_file_size == remote_file_size
 
 
 # =============================================================================
@@ -241,27 +161,60 @@ def download_stream(
     timeout: tuple[float, float] = (30.0, 300.0),  # (connect, read)
 ) -> int:
     """
-    Stream-download `url` to `destination` via a temporary .part file, optionally
-    verify expected size (if known), run validators, then atomically rename.
+    Stream-download `url` to `destination` via a temporary `.part` file.
 
-    Returns the number of bytes written.
+    The remote size is inferred from the actual streamed GET response when
+    Content-Length is available. After download, optional validators run and
+    the `.part` file is atomically renamed to the final raw archive path.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
-    
+
     temp_path = destination.with_suffix(destination.suffix + ".part")
     temp_path.unlink(missing_ok=True)
 
     bytes_written = 0
-    
+
+    download_headers = {
+        **dict(headers),
+        "Accept": "application/octet-stream",
+        "Accept-Encoding": "identity",
+    }
+
     try:
-        with session.get(url, headers=headers, stream=True, timeout=timeout) as response:
+        with session.get(
+            url,
+            headers=download_headers,
+            stream=True,
+            timeout=timeout,
+        ) as response:
             response.raise_for_status()
-            
-            # Only infer expected size if caller didn't provide one.
+
+            content_length = response.headers.get("Content-Length")
+
+            logger.info(
+                "GET download response: status=%s filename=%s content_length=%s "
+                "cf_ray=%s upstream_time=%s",
+                response.status_code,
+                destination.name,
+                content_length,
+                response.headers.get("CF-RAY"),
+                response.headers.get("x-envoy-upstream-service-time"),
+            )
+
+            if expected_size is None and content_length and content_length.isdigit():
+                expected_size = int(content_length)
+                logger.info(
+                    "Temporary raw archive size: %d bytes (%.2f GiB)",
+                    expected_size,
+                    expected_size / (1024**3),
+                )
+
             if expected_size is None:
-                content_length = response.headers.get("Content-Length")
-                if content_length and content_length.isdigit():
-                    expected_size = int(content_length)
+                logger.warning(
+                    "GET response did not provide Content-Length for %s; "
+                    "continuing with ZIP validation only.",
+                    destination.name,
+                )
 
             with open(temp_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=chunk_size):
@@ -269,7 +222,15 @@ def download_stream(
                         continue
                     f.write(chunk)
                     bytes_written += len(chunk)
-                    
+
+                    if bytes_written % (1024 ** 3) < chunk_size:
+                        logger.info(
+                            "Downloaded %.2f GiB of %s",
+                            bytes_written / (1024 ** 3),
+                            destination.name,
+                        )
+
+
         # Size verification (best-effort: only if expected size is known)
         if expected_size is not None and bytes_written != expected_size:
             raise RuntimeError(
@@ -279,13 +240,17 @@ def download_stream(
         # Validation stage (Open/Closed: add validators without changing this function)
         for validate in validators:
             validate(temp_path)
-        
+
         # Finalize (atomic)
         temp_path.replace(destination)
+
+        logger.info(
+            "Download completed successfully: %s (%d bytes)",
+            destination,
+            bytes_written,
+        )
+
         return bytes_written
-            
-    # if out_path.suffix.lower() == ".zip":
-    #     _verify_zip_file(temp_path)
 
     except Exception:
         if cleanup_on_error:

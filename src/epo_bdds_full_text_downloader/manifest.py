@@ -31,7 +31,7 @@ class ManifestRow(TypedDict):
     filtered_size: str
     final_size: str
     message: str
-    
+
 
 COLUMNS: tuple[str, ...] = (
     "filename",
@@ -47,7 +47,7 @@ COLUMNS: tuple[str, ...] = (
 # =============================================================================
 # IMPLEMENTATION
 # =============================================================================
-    
+
 @dataclass(frozen=True)
 class CsvManifest:
     """
@@ -63,7 +63,7 @@ class CsvManifest:
     """
     path: Path
     now: Callable[[], int] = lambda: int(time.time())
-    
+
     def read_all(self) -> Dict[str, ManifestRow]:
         """
         Load the manifest into a dict keyed by filename.
@@ -96,7 +96,7 @@ class CsvManifest:
                 rows[filename] = normalized
 
         return rows
-    
+
     def upsert(self, record: ManifestRow) -> None:
         """
         Insert or update a row by filename and persist to disk.
@@ -169,4 +169,3 @@ class CsvManifest:
             os.fsync(f.fileno())
 
         os.replace(tmp_path, self.path)
-        

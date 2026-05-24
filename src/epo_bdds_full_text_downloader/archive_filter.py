@@ -5,9 +5,14 @@ from io import BytesIO
 from pathlib import Path
 from typing import Callable, Optional, TypeAlias
 
+import logging
 import os
+import shutil
 import tarfile
+import tempfile
 import zipfile
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -42,13 +47,13 @@ class ArchiveFilterOptions:
     - strict: if True, raise on unexpected archive parsing errors.
               if False, treat unexpected errors as "nothing kept" (returns b"").
     """
-    strict: bool = True    
+    strict: bool = True
 
 
 # =============================================================================
 # ARCHIVE TYPE HELPERS
 # =============================================================================
-    
+
 def is_supported_archive(filename: str) -> bool:
     """Return True if filename looks like a supported archive type (zip/tar/tar.gz/tgz)."""
     lower = filename.lower()
@@ -58,7 +63,7 @@ def is_supported_archive(filename: str) -> bool:
         or lower.endswith(".tar.gz")
         or lower.endswith(".tgz")
     )
-    
+
 def detect_archive_kind(filename: str) -> Optional[str]:
     """
     Return 'zip' or 'tar' for supported archive names, otherwise None.
@@ -120,7 +125,7 @@ def filter_archive_bytes(
     kind = detect_archive_kind(archive_name)
     if kind is None:
         return b""
-    
+
     try:
         if kind == "zip":
             return _filter_zip_bytes(archive_bytes, rules, options=options)
@@ -133,9 +138,9 @@ def filter_archive_bytes(
 
 
 def _filter_zip_bytes(
-    zip_bytes: bytes, 
-    rules: ArchiveFilterRules, 
-    *, 
+    zip_bytes: bytes,
+    rules: ArchiveFilterRules,
+    *,
     options: ArchiveFilterOptions,
 ) -> bytes:
     """
@@ -163,12 +168,12 @@ def _filter_zip_bytes(
                 if is_supported_archive(member_name):
                     with zipin.open(entry) as f:
                         nested_bytes = f.read()
-                        
+
                     filtered_nested = filter_archive_bytes(nested_bytes, archive_name=member_name, rules=rules, options=options)
                     if filtered_nested:
                         #Use member_name as the name in the zipto preserve original path/name inside the archive
                         zipout.writestr(member_name, filtered_nested)
-                        wrote_anything = True 
+                        wrote_anything = True
 
     if not wrote_anything:
         return b""
@@ -180,7 +185,7 @@ def _filter_zip_bytes(
 
 def _filter_tar_bytes(
     tar_bytes: bytes,
-    tar_name: str, 
+    tar_name: str,
     rules: ArchiveFilterRules,
     *,
     options: ArchiveFilterOptions,
@@ -193,7 +198,7 @@ def _filter_tar_bytes(
     in_buffer = BytesIO(tar_bytes)
     out_buffer = BytesIO()
     wrote_anything = False
-    
+
     with tarfile.open(fileobj=in_buffer, mode=read_mode) as tarin:
         with tarfile.open(fileobj=out_buffer, mode=write_mode) as tarout:
             for member in tarin.getmembers():
@@ -219,7 +224,7 @@ def _filter_tar_bytes(
                     if extracted is None:
                         continue
                     nested_bytes = extracted.read()
-                    
+
                     filtered_nested = filter_archive_bytes(nested_bytes, archive_name=member_name, rules=rules, options=options)
                     if filtered_nested:
                         member.size = len(filtered_nested)
@@ -234,6 +239,177 @@ def _filter_tar_bytes(
 
 
 # =============================================================================
+# DISK-BACKED ZIP FILTERING FOR LARGE BDDS ARCHIVES
+# =============================================================================
+
+STREAM_COPY_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MiB
+
+
+def _copy_stream(source, destination) -> None:
+    """Copy file content incrementally without loading the whole member into RAM."""
+    shutil.copyfileobj(source, destination, length=STREAM_COPY_CHUNK_SIZE)
+
+
+def _new_zip_info(
+    entry: zipfile.ZipInfo,
+    *,
+    compression: int,
+) -> zipfile.ZipInfo:
+    """
+    Create output metadata for a copied ZIP member.
+
+    Direct XML members are compressed; already-compressed nested ZIP members
+    are stored without trying to compress them again.
+    """
+    output_entry = zipfile.ZipInfo(
+        filename=entry.filename,
+        date_time=entry.date_time,
+    )
+    output_entry.compress_type = compression
+    output_entry.external_attr = entry.external_attr
+    output_entry.comment = entry.comment
+    output_entry.create_system = entry.create_system
+    return output_entry
+
+
+def _filter_zip_path_to_path(
+    source_path: Path,
+    destination_path: Path,
+    rules: ArchiveFilterRules,
+    *,
+    options: ArchiveFilterOptions,
+    depth: int = 0,
+) -> bool:
+    """
+    Filter a ZIP file from disk to disk using bounded memory.
+
+    The nested ZIP structure is preserved in the filtered outer ZIP.
+    """
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+
+    wrote_anything = False
+    nested_seen = 0
+    nested_kept = 0
+
+    with tempfile.TemporaryDirectory(
+        prefix="epo_archive_filter_",
+        dir=destination_path.parent,
+    ) as temp_directory:
+        temporary_dir = Path(temp_directory)
+
+        with zipfile.ZipFile(source_path, "r") as zipin:
+            with zipfile.ZipFile(
+                destination_path,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+                allowZip64=True,
+            ) as zipout:
+                for index, entry in enumerate(zipin.infolist(), start=1):
+                    if entry.is_dir():
+                        continue
+
+                    member_name = entry.filename
+
+                    # Keep XML documents directly inside the current ZIP.
+                    if should_keep_xml(member_name, rules):
+                        output_entry = _new_zip_info(
+                            entry,
+                            compression=zipfile.ZIP_DEFLATED,
+                        )
+
+                        with zipin.open(entry, "r") as source:
+                            with zipout.open(
+                                output_entry,
+                                "w",
+                                force_zip64=True,
+                            ) as destination:
+                                _copy_stream(source, destination)
+
+                        wrote_anything = True
+                        continue
+
+                    # Recurse only into nested ZIP files.
+                    if not member_name.lower().endswith(".zip"):
+                        continue
+
+                    nested_seen += 1
+
+                    # An empty nested ZIP cannot contain XML and should not
+                    # cause the complete delivery to fail.
+                    if entry.file_size == 0:
+                        logger.warning("Skipping empty nested ZIP: %s", member_name)
+                        continue
+
+                    nested_source = temporary_dir / f"source_{index}.zip"
+                    nested_filtered = temporary_dir / f"filtered_{index}.zip"
+
+                    with zipin.open(entry, "r") as source:
+                        with nested_source.open("wb") as destination:
+                            _copy_stream(source, destination)
+
+                    try:
+                        nested_has_matches = _filter_zip_path_to_path(
+                            source_path=nested_source,
+                            destination_path=nested_filtered,
+                            rules=rules,
+                            options=options,
+                            depth=depth + 1,
+                        )
+                    except zipfile.BadZipFile:
+                        if options.strict:
+                            raise
+
+                        logger.warning(
+                            "Skipping invalid nested ZIP: %s",
+                            member_name,
+                        )
+                        nested_has_matches = False
+
+                    if nested_has_matches:
+                        # A nested ZIP is already compressed. Store it in the
+                        # outer ZIP without wasting time recompressing it.
+                        output_entry = _new_zip_info(
+                            entry,
+                            compression=zipfile.ZIP_STORED,
+                        )
+
+                        with nested_filtered.open("rb") as source:
+                            with zipout.open(
+                                output_entry,
+                                "w",
+                                force_zip64=True,
+                            ) as destination:
+                                _copy_stream(source, destination)
+
+                        nested_kept += 1
+                        wrote_anything = True
+
+                    nested_source.unlink(missing_ok=True)
+                    nested_filtered.unlink(missing_ok=True)
+
+                    if depth == 0 and nested_seen % 500 == 0:
+                        logger.info(
+                            "Processed %d nested ZIPs; %d contained matching XML files.",
+                            nested_seen,
+                            nested_kept,
+                        )
+
+    if not wrote_anything:
+        destination_path.unlink(missing_ok=True)
+        return False
+
+    if depth == 0:
+        logger.info(
+            "Finished filtering outer ZIP: %d nested ZIPs processed; "
+            "%d retained.",
+            nested_seen,
+            nested_kept,
+        )
+
+    return True
+
+
+# =============================================================================
 # OUTPUT VALIDATION
 # =============================================================================
 
@@ -243,7 +419,7 @@ def validate_zip_crc(path: Path) -> None:
     """
     if not zipfile.is_zipfile(path):
         raise RuntimeError("Invalid ZIP (missing central directory or not a ZIP)")
-    
+
     with zipfile.ZipFile(path) as zf:
         bad_member = zf.testzip()
         if bad_member is not None:
@@ -280,7 +456,7 @@ def write_bytes_atomically(
                 os.fsync(f.fileno())
             except OSError:
                 # Some mounts/filesystems do not support fsync reliably.
-                # Prefer not to crash; callers doing critical durability may want strict mode.
+                # Continue without crashing.
                 pass
 
     return temp_path
@@ -296,50 +472,77 @@ def finalize_atomic_write(temp_path: Path, destination: Path) -> None:
 # =============================================================================
 
 def filter_archive_file(
-    source_path: Path, 
-    destination_path: Path, 
-    rules: ArchiveFilterRules, 
-    *, 
+    source_path: Path,
+    destination_path: Path,
+    rules: ArchiveFilterRules,
+    *,
     options: ArchiveFilterOptions = ArchiveFilterOptions(),
     validators: Optional[list[Validator]] = None,
     cleanup_on_error: bool = True,
 ) -> bool:
     """
-    Read an archive from disk, filter it in memory, write to destination atomically.
+    Filter an archive to `destination_path`.
 
-    Returns:
-      - True if something was kept and written.
-      - False if nothing matched (no XMLs kept anywhere).
-      
-    Raises:
-      - Exceptions from parsing/filtering if options.strict is True
-      - RuntimeError from validators
-      - OSError from file operations
-
-    If cleanup_on_error is True, deletes the .part file on exceptions.
+    ZIP deliveries use disk-backed bounded-memory processing suitable for
+    multi-gigabyte BDDS archives. The existing in-memory path is retained for
+    non-ZIP formats until disk-backed TAR processing is implemented.
     """
-    raw_bytes = source_path.read_bytes()
-    filtered_bytes = filter_archive_bytes(raw_bytes, archive_name=source_path.name, rules=rules,options=options)
-    if not filtered_bytes:
-        return False
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
 
-    temp_path=None
+    temp_path = destination_path.with_suffix(destination_path.suffix + ".part")
+    temp_path.unlink(missing_ok=True)
+
     try:
-        temp_path = write_bytes_atomically(destination_path, filtered_bytes, fsync=True)
-        
-        # If no validators provided, pick a sensible default for zip outputs
-        if validators is None:
-            validators = []
-            if destination_path.suffix.lower() == ".zip":
-                validators.append(validate_zip_crc)
-        
-        for validator in validators:
+        if source_path.name.lower().endswith(".zip"):
+            kept_any = _filter_zip_path_to_path(
+                source_path=source_path,
+                destination_path=temp_path,
+                rules=rules,
+                options=options,
+            )
+        else:
+            logger.warning(
+                "Using in-memory filtering for non-ZIP archive: %s",
+                source_path.name,
+            )
+            raw_bytes = source_path.read_bytes()
+            filtered_bytes = filter_archive_bytes(
+                raw_bytes,
+                archive_name=source_path.name,
+                rules=rules,
+                options=options,
+            )
+
+            if not filtered_bytes:
+                return False
+
+            with temp_path.open("wb") as output_file:
+                output_file.write(filtered_bytes)
+
+            kept_any = True
+
+        if not kept_any:
+            temp_path.unlink(missing_ok=True)
+            return False
+
+        validators_to_run = list(validators or [])
+
+        if validators is None and destination_path.suffix.lower() == ".zip":
+            validators_to_run.append(validate_zip_crc)
+
+        for validator in validators_to_run:
             validator(temp_path)
-        
+
         finalize_atomic_write(temp_path, destination_path)
+
+        logger.info(
+            "Filtered archive written successfully: %s",
+            destination_path,
+        )
+
         return True
-    
+
     except Exception:
-        if cleanup_on_error and temp_path is not None:
-            temp_path.unlink(missing_ok=True) # Delete the temp file if it exists
+        if cleanup_on_error:
+            temp_path.unlink(missing_ok=True)
         raise
