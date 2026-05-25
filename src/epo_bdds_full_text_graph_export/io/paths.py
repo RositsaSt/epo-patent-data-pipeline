@@ -33,17 +33,16 @@ def build_default_config(
         source_files_csv=output_dir / "nodes_source_files.csv",
     )
 
-    # IMPORTANT: Adjust fieldnames with your actual Neo4j import headers.
     schemas = CsvSchemas(
         publications_fields=[ "pub_id", "country", "pub_number", "kind_code", "publication_date", "pub_language", "source_id"],
-        applications_fields=["appln_id", "appln_country", "appln_number", "appln_kind_code", "appln_filing_date", 
+        applications_fields=["appln_id", "appln_country", "appln_number", "appln_kind_code", "appln_filing_date",
                              "gazette_date", "gazette_issue", "source_id"],
         ipc_classifications_fields=["ipc_raw_code", "ipc_long_code", "ipc_short_code", "source_id"],
         cpc_classifications_fields=["cpc_raw_code", "cpc_long_code", "cpc_short_code", "source_id"],
-        applicants_fields=["org_key", "applicant_name", "applicant_epo_id", "applicant_reference", "applicant_address", 
+        applicants_fields=["org_key", "applicant_name", "applicant_epo_id", "applicant_reference", "applicant_address",
                            "applicant_city", "applicant_country", "source_id"],
         inventors_fields=["person_key", "inventor_name", "inventor_address", "inventor_city", "inventor_country", "source_id"],
-        attorney_representatives_fields=["person_key", "attorney_name", "attorney_sfx", "attorney_epo_id", 
+        attorney_representatives_fields=["person_key", "attorney_name", "attorney_sfx", "attorney_epo_id",
                                          "attorney_address", "attorney_city", "attorney_country", "source_id"],
         citations_fields=["from_pub_id", "to_pub_id", "cite_type", "source_id"],
         relationships_fields=["from_label", "from_key", "from_id", "rel_type", "to_label", "to_key", "to_id", "source_id"],

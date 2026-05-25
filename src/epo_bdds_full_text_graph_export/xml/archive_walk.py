@@ -28,7 +28,7 @@ def iter_doc_xml_from_top_archive(top_archive_path: Path) -> Iterator[XmlPayload
     archive_kind = _detect_archive_kind_from_name(top_archive_path.name.lower())
     if archive_kind is None:
         raise ValueError(f"Unsupported top archive type: {top_archive_path}")
-    
+
     chain = top_archive_path.name
 
     if archive_kind == "zip":
@@ -38,8 +38,8 @@ def iter_doc_xml_from_top_archive(top_archive_path: Path) -> Iterator[XmlPayload
                 parent_chain=chain,
                 doc_only=True,
             )
-    
-    if archive_kind in ("tar", "tar.gz", "tgz"):        
+
+    if archive_kind in ("tar", "tar.gz", "tgz"):
         tar_mode = _tar_mode_from_name(top_archive_path.name.lower())
         with tarfile.open(top_archive_path, mode=tar_mode) as tf:
             yield from _walk_tar(
@@ -65,11 +65,11 @@ def _walk_zip(
     for info in members:
         if info.is_dir():
             continue
-        
+
         member_path = info.filename
 
-        # Only consider files under DOC/ if doc_only=True. 
-        # Once we are inside DOC/, we set doc_only=False for nested archives, 
+        # Only consider files under DOC/ if doc_only=True.
+        # Once we are inside DOC/, we set doc_only=False for nested archives,
         # because their internal paths may not start with DOC/ anymore.
         if doc_only and not _is_under_doc(member_path):
             continue
@@ -81,14 +81,14 @@ def _walk_zip(
             source_id = f"{parent_chain}::{member_path}"
             yield XmlPayload(source_id=source_id, xml_bytes=xml_bytes)
             continue
-        
+
         nested_kind = _detect_archive_kind_from_name(lower)
         if nested_kind is None:
             continue
-        
+
         nested_bytes = zf.read(info)
         nested_chain = f"{parent_chain}::{member_path}"
-        
+
         if nested_kind == "zip":
             with zipfile.ZipFile(io.BytesIO(nested_bytes), "r") as nested_zf:
                 # Once we're inside DOC/**, we keep doc_only=False because member paths
@@ -106,7 +106,7 @@ def _walk_zip(
                     parent_chain=nested_chain,
                     doc_only=False,
                 )
-                
+
 
 # ----------------------------
 # TAR walking
@@ -137,13 +137,13 @@ def _walk_tar(
             source_id = f"{parent_chain}::{member_path}"
             yield XmlPayload(source_id=source_id, xml_bytes=data)
             continue
-        
+
         nested_kind = _detect_archive_kind_from_name(lower)
         if nested_kind is None:
             continue
-        
+
         nested_chain = f"{parent_chain}::{member_path}"
-        
+
         if nested_kind == "zip":
             with zipfile.ZipFile(io.BytesIO(data), "r") as nested_zf:
                 yield from _walk_zip(

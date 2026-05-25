@@ -17,7 +17,7 @@ class ApplicationExtractor:
         appln_country = (xml_root.get("id") or "").strip()[:2]
         appln_number = (xml_root.get("id") or "").strip()[2:10]
         appln_kind_code = (xml_root.get("id") or "").strip()[10:]
-        
+
         sdobi = (xml_root.find("SDOBI"))
         if sdobi is not None:
             b200 = sdobi.find("B200")
@@ -25,17 +25,14 @@ class ApplicationExtractor:
                 b220 = b200.find("B220")
                 if b220 is not None:
                     appln_filing_date = extract_text_from_element(b220, "date")
-                    #(b220.find("date").text or "").strip()
-                    
+
             b400 = sdobi.find("B400")
             if b400 is not None:
                 b405 = b400.find("B405")
                 if b405 is not None:
                     gazette_date = extract_text_from_element(b405, "date")
-                    #(b405.find("date").text or "").strip()
                     gazette_issue = extract_text_from_element(b405, "bnum")
-                    #(b405.find("bnum").text or "").strip()          
-        
+
         if not appln_id:
             return []
 

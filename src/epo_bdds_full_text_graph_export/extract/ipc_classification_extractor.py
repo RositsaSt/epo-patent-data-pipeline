@@ -8,11 +8,11 @@ import xml.etree.ElementTree as ET
 @dataclass(frozen=True)
 class IpcClassificationExtractor:
     """
-    Extract classification nodes (IPC, CPC) from the EP full-text XML root.    
+    Extract IPC classification nodes from the EP full-text XML root.
     """
     def extract_ipc_classifications(self, xml_root: ET.Element, source_id: str) -> list[dict]:
         ipc_classification_codes: List[dict] = []
-        
+
         sdobi = xml_root.find("SDOBI")
         if sdobi is not None:
             b500 = sdobi.find("B500")
@@ -31,10 +31,10 @@ class IpcClassificationExtractor:
                                 "ipc_short_code": ipc_short_code,
                                 "source_id": source_id,
                             })
-                            
-                                                                
+
+
         return ipc_classification_codes
-    
+
     @staticmethod
     def _normalise_ipc_classification_text(raw_text: str) -> str:
         """
